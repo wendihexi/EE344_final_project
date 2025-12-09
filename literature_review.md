@@ -1,133 +1,132 @@
-# Literature Review and Background
+# Literature Review: Time-Series Forecasting for NVDA Stock
 
 ## 1. Problem Setting
 
-Our project studies **time-series forecasting of NVIDIA (NVDA) stock prices**. Stock data are:
+Our project focuses on **forecasting NVIDIA (NVDA) daily closing prices**. Equity time series are:
 
-- noisy and highly volatile
-- strongly affected by market-wide conditions (SPY, VIX)
-- potentially nonstationary due to structural changes (e.g., AI boom, macro shocks)
+- noisy and highly volatile,
+- nonstationary (regime shifts, bubbles, crashes),
+- affected by broader market conditions (market indices, volatility, news).
 
-This makes NVDA a good test case for comparing **simple baselines** (naïve/random-walk) and a modern **additive model** (Prophet) with exogenous regressors.
+Because of this, NVDA is a good testbed for comparing:
 
-We use **daily historical data** for NVDA (adjusted close and volume), SPY (S&P 500 ETF), and VIX (CBOE Volatility Index), downloaded from Yahoo Finance and aligned by date.
+- **Simple statistical baselines** (naïve/persistence),
+- **Additive forecasting models** (Prophet),
+- **Deep sequence models** (LSTMs).
 
----
-
-## 2. Classical Forecasting Concepts
-
-Classical time-series forecasting methods such as **ARIMA, exponential smoothing, and state-space models** are well established in the forecasting literature. Hyndman & Athanasopoulos emphasize three core ideas:
-
-1. Always compare against simple benchmarks such as:
-   - **Naïve / random walk**: \(\hat{y}_{t+1} = y_t\)
-   - **Mean forecast** over the training window
-2. Decompose series into **trend**, **seasonality**, and **remainder**.
-3. Evaluate models on **held-out future data** using appropriate error metrics (MAE, RMSE, MAPE, \(R^2\)).  
-
-These ideas motivate our project design:
-- We treat the naïve model as a strong baseline.
-- We explicitly model trend and seasonality via Prophet.
-- We evaluate on a chronologically later test set instead of random shuffles.
+Both versions of our code use **daily NVDA data from Yahoo Finance** (`yfinance`) and treat forecasting as a supervised time-series problem.
 
 ---
 
-## 3. Prophet: Additive Models for Forecasting at Scale
+## 2. Classical Forecasting Background and Baselines
 
-**Prophet**, developed at Facebook (Meta), is a forecasting tool for time series with:
+Classical methods such as **ARIMA, exponential smoothing, and state-space models** are the backbone of time-series forecasting. Hyndman & Athanasopoulos emphasize three key ideas:​:contentReference[oaicite:0]{index=0}  
 
-- **Non-linear trend** with automatic changepoints.
-- **Multiple seasonal components** (yearly, weekly, daily).
-- **Holiday / event effects**.
-- **Extra user-defined regressors** (e.g., SPY, VIX, volume).  
+1. Always compare new models against **simple baselines**, especially:
+   - **Naïve / random-walk**: \(\hat{y}_{t+1} = y_t\),
+   - **Mean forecast** over the training window.
+2. Explicitly separate **trend**, **seasonality**, and **residuals**.
+3. Evaluate on **future hold-out data** (not shuffled) with metrics like MAE, RMSE, and \(R^2\).
 
-The core idea is a **decomposable additive model**:
+In **v1**, we followed this advice by building a **naïve persistence model** and using it as a strong benchmark against Prophet and the LSTM. The results in v1 show that for short horizons on NVDA, the naïve model already achieves a very high \(R^2\) (~0.95), which matches the literature’s warning that financial series are often close to random walks.
 
-\[
-y(t) = g(t) + s(t) + h(t) + \epsilon_t
-\]
-
-where:
-- \(g(t)\) is the trend component,
-- \(s(t)\) is seasonal structure,
-- \(h(t)\) captures holidays/regressors,
-- \(\epsilon_t\) is noise.
-
-Taylor & Letham highlight several properties that make Prophet attractive for “forecasting at scale”:
-
-- It is **robust to missing data and outliers**.
-- It allows **analysts to configure** changepoints, seasonalities, and regressors without deep time-series expertise.
-- It produces **interpretable components** (plots of trend, seasonality, regressor effects) rather than a black box. :contentReference[oaicite:0]{index=0}
-
-In our project, Prophet is used as the main model because:
-
-- NVDA exhibits **strong long-term trend shifts**.
-- We can inject **market context** via regressors (SPY, VIX, volume).
-- We want interpretable, component-wise plots rather than only raw predictions.
+In **v2**, we kept the same spirit: Prophet variants are always evaluated against a simple baseline (naïve and a straightforward “baseline Prophet” without extra tricks).
 
 ---
 
-## 4. Extensions and Alternatives
+## 3. Prophet: Additive, Interpretable Models
 
-### 4.1 NeuralProphet
+**Prophet** (Facebook/Meta) is a decomposable time-series model with:
 
-**NeuralProphet** is a hybrid framework that builds on Prophet’s additive structure but adds:
+- non-linear trend with changepoints,
+- multiple seasonal components (weekly, yearly, etc.),
+- holiday / event effects,
+- optional extra regressors.:contentReference[oaicite:1]{index=1}  
 
-- auto-regressive terms,
-- covariate modules, and
-- optional neural network components
+Taylor & Letham describe Prophet as a practical tool for **“forecasting at scale”**: it provides a modular regression model where analysts can tune trend, seasonality, and holiday components without being deep time-series experts.:contentReference[oaicite:2]{index=2}  
 
-implemented in PyTorch. It keeps the Prophet-style decomposable model but introduces **local context** via autoregression, which can significantly improve short- and medium-horizon accuracy on some datasets. :contentReference[oaicite:1]{index=1}
+In our project:
 
-We did not implement NeuralProphet in this project (due to scope and time), but it is a natural next step in future work.
+- **v1**:
+  - Used Prophet on NVDA close price.
+  - Experimented with **US holidays** and custom **NVDA “AI event” holidays** (GTC and other major AI-related announcements).
+  - Extended holiday effects via `lower_window` and `upper_window` to model multi-day impacts.
+- **v2**:
+  - Reorganized Prophet usage into a **clean pipeline**:
+    - Baseline Prophet on price,
+    - Prophet on **log price with flexible trend**,
+    - Prophet with **explicit seasonality**,
+    - **Rolling Prophet** (one-step-ahead) with and without **exogenous regressors**:
+      - SPY (market index),
+      - NVDA trading volume,
+      - VIX (volatility index).
 
-### 4.2 Deep Learning Models (LSTMs, Transformers)
-
-There is a large literature on using **LSTMs, GRUs, and Transformer-based architectures** for stock prediction and general time-series forecasting. These models:
-
-- can capture nonlinear dynamics and longer temporal dependencies,
-- often need **more data, careful tuning, and regularization**, and
-- are less interpretable than Prophet-style models.
-
-For an EE344 course project, we prioritized:
-
-- a fully working, interpretable pipeline (Prophet + regressors + rolling evaluation),
-- plus a strong naïve baseline,
-
-rather than a partially tuned deep model.
-
----
-
-## 5. Use of Exogenous Regressors in Financial Forecasting
-
-In financial modeling, it is common to include **market factors** and **risk measures** as regressors:
-
-- broad market index (e.g., SPY) to represent market movement,
-- volatility index (VIX) to capture “fear” or risk sentiment,
-- trading volume as a proxy for liquidity and attention.
-
-Prophet natively supports **additional regressors**, making it easy to integrate these factors: they are treated as extra columns and their effects are estimated as part of the additive model. :contentReference[oaicite:2]{index=2}
-
-This motivates our final model design:
-- target: log-transformed NVDA price,
-- regressors: log-transformed SPY, VIX, and NVDA volume.
+This aligns with Prophet’s design: incorporate domain knowledge via holidays / regressors and allow trends to adapt to structural changes.:contentReference[oaicite:3]{index=3}  
 
 ---
 
-## 6. Summary of Takeaways from the Literature
+## 4. Deep Learning for Stock Prediction: LSTMs
 
-From the literature we reviewed, the main guiding principles were:
+**Long Short-Term Memory (LSTM)** networks are widely used for sequence modeling. They can capture non-linear temporal dependencies and have been applied to stock prediction with success:
 
-1. **Baselines matter**: naïve/random-walk forecasts are surprisingly hard to beat in stock data; any advanced model should be compared against them.
-2. **Decomposition helps**: separating trend, seasonality, and regressors improves interpretability and often robustness.
-3. **Exogenous information is valuable**: macro-market indices and volatility measures add information that single-stock history alone cannot capture.
-4. **Interpretability vs. complexity**: Prophet offers a good balance for an academic project—more flexible than pure ARIMA, but simpler and more transparent than deep neural networks.
-5. **Rolling evaluation is closer to reality**: evaluating models in a rolling or walk-forward manner approximates how forecasts would be generated in practice.
+- Fischer & Krauss use LSTMs to predict directional movements of S&P 500 constituents and show that LSTMs can outperform memory-free models like random forests, standard dense nets, and logistic regression on daily returns.:contentReference[oaicite:4]{index=4}  
+- Subsequent work and surveys report strong performance of LSTMs and related architectures on various stock markets and indices.:contentReference[oaicite:5]{index=5}  
+
+In **v1**, we implemented a **pure LSTM pipeline**:
+
+- Scale NVDA close prices with MinMaxScaler,
+- Create sliding-window sequences (e.g., 60 days → next-day price),
+- Train a two-layer LSTM with 50 units per layer for 50 epochs,
+- Evaluate on a held-out test split.
+
+The LSTM achieved:
+
+- **RMSE ≈ 3.33**  
+- **MAE ≈ 1.96**  
+- **R² ≈ 0.9964**  
+
+on the (scaled back) test set, indicating an extremely tight fit to the test data.
+
+The literature warns that such high in-sample or single-split performance on financial data can reflect **overfitting** or evaluation choices (e.g., lack of rolling evaluation, using overlapping windows, or not testing on truly “future” periods). Our results are consistent with LSTMs’ ability to fit complex patterns, but they need cautious interpretation.
 
 ---
 
-## 7. References
+## 5. Hybrid and Successor Models (NeuralProphet)
 
-- Taylor, S. J., & Letham, B. (2018). *Forecasting at Scale*. The American Statistician, 72(1), 37–45.  
-- Hyndman, R. J., & Athanasopoulos, G. (2021). *Forecasting: Principles and Practice* (3rd ed.). OTexts.  
-- Triebe, O., Hewamalage, H., Pilyugina, P., Laptev, N., Bergmeir, C., & Rajagopal, R. (2021). *NeuralProphet: Explainable Forecasting at Scale* (arXiv:2111.15397).  
-- Meta Open Source. *Prophet: Forecasting at Scale* – Official documentation.  
+Recent work proposes **NeuralProphet**, a hybrid framework that combines Prophet-style additive components with neural auto-regression and covariate modules in PyTorch.:contentReference[oaicite:6]{index=6}  
+
+Key points from NeuralProphet:
+
+- Retains Prophet’s **trend/seasonality/holiday** decomposition.
+- Adds **local context** via autoregressive and neural components.
+- Aims to bridge the gap between **interpretable additive models** and **flexible deep learning**.
+
+We did not implement NeuralProphet in either version, but it strongly motivates our design:
+
+- **v1** explores a *deep* model (LSTM) separately from Prophet.
+- **v2** focuses on making **Prophet as strong and well-engineered as possible**, using:
+  - log transforms,
+  - additional regressors (SPY, VIX, volume),
+  - rolling evaluation to mimic realistic deployment.
+
+In future work, NeuralProphet would be a natural candidate model that combines the strengths of both versions.
+
+---
+
+## 6. How the Literature Informed Both Versions
+
+- From **classical forecasting literature**, we took:
+  - The importance of **naïve benchmarks** and **proper train/test splitting**.
+  - The idea of modeling trend/seasonality explicitly.:contentReference[oaicite:7]{index=7}  
+
+- From the **Prophet paper**, we took:
+  - Use of **changepoints**, **holiday events**, and **extra regressors**.
+  - Focus on **interpretable components**, not just accuracy.:contentReference[oaicite:8]{index=8}  
+
+- From **LSTM stock forecasting work**, we took:
+  - The motivation to try sequence models on NVDA.
+  - Awareness of the risk of overfitting and the need for robust evaluation.:contentReference[oaicite:9]{index=9}  
+
+**v1** can be seen as “broad exploration”: naïve vs Prophet vs LSTM, showing how a deep model can fit NVDA extremely well on a single split while Prophet struggles without careful engineering.
+
+**v2** is the “tightened” version: it focuses on Prophet and preprocessing, builds a cleaner pipeline with exogenous regressors and rolling evaluation, and sticks closer to the course’s emphasis on interpretable models and method comparison.
