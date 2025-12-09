@@ -12,7 +12,7 @@ We have **two main notebook versions**:
   Original final-project notebook with naïve vs Prophet vs LSTM.
 
 - **v2: `Prophet_testing_v2.ipynb`**  
-  Improved, Prophet-focused notebook with better preprocessing and rolling forecasts.
+  Improved, Prophet-focused notebook looked at several Prophet based models including rolling forecasts.
 
 ---
 
