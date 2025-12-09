@@ -1,233 +1,296 @@
-# Methods, Preprocessing, and Model Comparison
+# Methods, Preprocessing, and Comparison of Code Versions
 
-## 1. Dataset and Overall Pipeline
+We have two main versions of our project code:
 
-We worked with **daily historical data** for:
+- **Version 1 (v1)**: `EE_344_Final_project-4.ipynb`  
+  – Original final-project notebook combining naïve baseline, Prophet, and LSTM.
 
-- NVIDIA (NVDA): adjusted close and volume
-- SPY: closing price (broad US market proxy)
-- VIX: closing value (market volatility index)
+- **Version 2 (v2)**: `Improved_ver_of_A's_EE344_Final_temp1.ipynb`  
+  – Improved, Prophet-centric notebook with cleaner preprocessing and rolling evaluation.
 
-All series are downloaded from Yahoo Finance, merged on the calendar date, and restricted to days where NVDA is traded. The high-level pipeline is:
-
-1. Download & merge NVDA, SPY, VIX.
-2. Clean and align dates (single `ds` column).
-3. Apply log transforms to stabilize variance.
-4. Split chronologically into train/test sets.
-5. Train and compare:
-   - naïve baseline,
-   - baseline Prophet,
-   - improved Prophet (log + regressors).
-6. Evaluate forecasting accuracy on the test window.
+This document describes the **shared pipeline**, what we did in **each version**, key **results**, and **why** we made these choices.
 
 ---
 
-## 2. Preprocessing Steps
+## 1. Data and Shared Preprocessing
 
-### 2.1 Column Cleaning and Date Handling
+Both versions use **daily NVDA stock data** from Yahoo Finance via `yfinance`:
 
-Yahoo Finance returns a DataFrame with a datetime index and multiple columns. We:
+- Download from `1999-01-01`.
+- Extract and rename:
+  - `ds` = date,
+  - `y`  = target (NVDA adjusted/close price).
 
-- Flattened the columns (if MultiIndex) and reset the index.
-- Kept only the needed columns (`Date`, `Close`, `Volume`).
-- Renamed to Prophet’s expected format:
+In both:
 
-  - `ds` = date
-  - `y`  = target (NVDA adjusted close)
+- The date column is converted to `datetime`.
+- Data are sorted chronologically.
+- For Prophet, we ensure the DataFrame has exactly `['ds', 'y']` with float `y`.
 
-- Ensured `ds` is parsed as a proper `datetime` type.
+### v2-Only: Extra Market Regressors
 
-This makes the data compatible with Prophet’s API and ensures consistent time handling.
+In v2, we add additional daily series:
 
-### 2.2 Creating and Merging Regressors
+- **SPY** (S&P 500 ETF close),
+- **VIX** (volatility index),
+- **Volume** (NVDA trading volume).
 
-We construct three exogenous regressors:
+These are:
 
-- `SPY` (market level)
-- `Volume` (NVDA trading volume)
-- `VIX` (volatility / risk sentiment)
+1. Downloaded with `yfinance`,
+2. Reset to `(ds, value)` format,
+3. Merged onto the NVDA frame via left joins on `ds`,
+4. Forward-filled to handle occasional missing days,
+5. Log-transformed along with `y`:
 
-Steps:
+   - `log_price = log(NVDA Close)`,
+   - `log_SPY`, `log_VIX`, `log_Volume`.
 
-1. Download SPY and VIX as separate time series.
-2. Reset each to have a `Date` column and rename:
-   - `Close → SPY`
-   - `Close → VIX`
-3. Extract NVDA `Volume` as a separate series.
-4. Merge all three onto the main NVDA frame on the `ds` column using left joins.
-5. Handle missing values with **forward fill** to keep the regressors defined for all trading days.
-
-### 2.3 Log Transformation
-
-To stabilize variance and reduce the impact of large outliers, we take logs:
-
-- `y      = log(NVDA price)`
-- `SPY    = log(SPY close)`
-- `Volume = log(Volume)`
-- `VIX    = log(VIX)`
-
-This is a standard practice for financial data, where price and volume can grow exponentially over long horizons.
-
-### 2.4 Train/Test Split and Rolling Setup
-
-We split the dataset chronologically:
-
-- **Training set**: early part of the time series.
-- **Test set**: later unseen period.
-
-For the final model we use a **rolling window** strategy:
-
-1. Initialize a training window with early data.
-2. Fit Prophet on the current training window.
-3. Forecast one (or a small number of) future point(s).
-4. Compare prediction with actual values.
-5. Extend the training window to include the new true observation.
-6. Repeat through the test period.
-
-This mimics a realistic deployment where only past data are available at each forecast step and reduces look-ahead bias.
+This yields a clean DataFrame for Prophet with exogenous regressors.
 
 ---
 
-## 3. Models Considered
+## 2. Version 1 (Original): Naïve, Prophet, and LSTM
 
-### 3.1 Naïve Baseline (Random Walk)
+### 2.1 Naïve (Persistence) Baseline
 
-**Definition:**
+In v1 we implement a **persistence model**:
 
 \[
 \hat{y}_{t+1} = y_t
 \]
 
-This forecast simply predicts that tomorrow’s price equals today’s price.
+Procedure:
 
-- **Why use it?**
-  - In efficient markets, short-term price changes are close to random; the random-walk is a strong benchmark.
-  - It is trivial to implement and interpret.
+- Use a **recent train window (≈2 years)** and **later test window**.
+- For 1-day-ahead forecasts, take today’s close as tomorrow’s prediction.
 
-- **When it works well**
-  - Over very short horizons for highly efficient financial assets.
-  - When there is no strong predictable structure beyond noise.
+**Results (1-day ahead, recent period):**
 
-- **When it fails**
-  - When there are strong trends or seasonal patterns that persist beyond one day.
-  - When the interest is in longer-horizon forecasts.
+- **MAE ≈ 1.23**
+- **RMSE ≈ 1.70**
+- **R² ≈ 0.95**
 
----
+This confirms that for very short horizons on NVDA, simply repeating yesterday’s price is already extremely strong.
 
-### 3.2 Baseline Prophet (Price Only)
+### 2.2 Prophet in v1: Holidays and AI Events
 
-We first fit a simple Prophet model on the **raw NVDA price** (no log, no regressors):
+We then apply Prophet to NVDA:
 
-- Default yearly/weekly seasonality.
-- Automatic changepoints for trend.
-- Single fit over the train window; forecast across the entire test window.
+1. **Baseline Prophet**:
+   - Trend + default seasonalities.
+   - Train on the same train window, forecast 1 day ahead in the test window.
+   - Result: Prophet performs much worse than naïve (R² ≈ −76), indicating a major mismatch between default Prophet behavior and the NVDA series in this setup.
 
-**Findings:**
+2. **Holidays & AI Events**:
+   - Add standard US holidays via `Prophet(holidays=country_holidays("US"))`.
+   - Define a custom `nvda_ai_holidays` DataFrame with dates of major NVIDIA AI-related announcements (e.g., GTC keynotes, architecture launches).
+   - Add `lower_window = 0` and `upper_window = 6` so each event influences a 7-day window, modeling the idea that AI events affect NVDA for about a week.
 
-- The model **visually fits** major long-term trends.
-- However, out-of-sample performance (e.g., \(R^2\) on the test set) is poor and can be **worse than the naïve baseline**.
-- The model struggles with:
-  - high volatility,
-  - abrupt structural breaks,
-  - heteroskedasticity (variance increasing over time).
+Qualitatively, inspection of the **components plots** shows:
 
-This motivated further preprocessing and feature engineering.
+- Holiday effects capturing short bursts around AI events,
+- Some localized adjustments to the trend around these dates.
 
----
+However, **quantitative improvement vs naïve is minimal** in v1’s current Prophet configuration; the main story is that naïve remains superior.
 
-### 3.3 Prophet with Log-Transformed Target
+### 2.3 LSTM Model in v1
 
-Next, we fit Prophet to **log price**:
+To explore deep learning, v1 builds a **two-layer LSTM**:
 
-- Replace `y` by `log(price)` before fitting.
-- After forecasting log values, exponentiate predictions to return to price scale.
+1. **Scaling**:
+   - Use `MinMaxScaler(0, 1)` on NVDA close prices.
 
-**Why log-transform?**
+2. **Sequence construction**:
+   - Choose a **look_back = 60** days.
+   - Build sequences \((X, y)\) where:
+     - \(X_i\): last 60 scaled prices,
+     - \(y_i\): next-day scaled price.
 
-- Reduces scale variation and stabilizes variance.
-- Treats proportional changes (returns) more consistently over time.
-- Often improves the ability of models to capture trend.
+3. **Train/test split**:
+   - 80% train, 20% test, no shuffle (to respect time ordering).
 
-**Effect:**
+4. **Model**:
+   - Sequential model:
+     - LSTM(50 units, return_sequences=True),
+     - LSTM(50 units, return_sequences=False),
+     - Dense(1).
+   - Loss: mean squared error, optimizer: Adam.
+   - Trained for 50 epochs.
 
-- The log-transform improves stability and reduces extreme residuals.
-- Visual fit in the test region looks more reasonable, but performance is still limited with only NVDA’s own price as input.
+5. **Evaluation**:
+   - Inverse-transform predictions back to price scale.
+   - Compute **RMSE, MAE, R²** on the test set.
 
----
+**Results (v1 LSTM):**
 
-### 3.4 Final Model: Prophet + Log Transform + Regressors + Rolling Evaluation
+- **RMSE ≈ 3.33**
+- **MAE ≈ 1.96**
+- **R² ≈ 0.9964**
 
-Our final and best-performing configuration is:
+Visually, the predicted and actual curves almost overlap over the test period.
 
-- **Target:** `y = log(NVDA price)`
-- **Regressors:**
-  - `SPY` (log),
-  - `Volume` (log),
-  - `VIX` (log)
-- **Model:** Prophet with `add_regressor` for each of the above.
-- **Evaluation:** Rolling-window forecasting on the test period.
+**Interpretation:**
 
-**Rationale:**
+- The LSTM clearly **outperforms both naïve and Prophet** on the chosen split.
+- But such a high R² on noisy financial data suggests:
+  - The model may be exploiting overlapping windows,
+  - Data leakage is possible if evaluation is not strictly rolled forward,
+  - Performance may not generalize to new regimes.
 
-- SPY adds *market-level* information.
-- VIX adds *risk and volatility* information.
-- Volume adds *attention/liquidity* information.
-- The rolling setup keeps the model updated with the latest data and avoids using any future information.
-
-**Observed behavior (qualitative):**
-
-- The final model follows major upward and downward movements of NVDA more closely than the baseline Prophet.
-- It yields a **higher \(R^2\) on the test set** compared to the earlier Prophet variants.
-- It remains imperfect around sharp earnings jumps or unexpected macro events, which are difficult to predict from past prices and the chosen regressors alone.
-
-(When finalizing the report, you can insert the exact numeric values of MAE / RMSE / \(R^2\) from your notebook here.)
+This motivated us in v2 to focus more on **evaluation protocols** (rolling forecasts) and **interpretable models**, rather than pushing deeper LSTM tuning.
 
 ---
 
-## 4. Methodological Comparison
+## 3. Version 2 (Improved): Prophet-Centric with Better Preprocessing
 
-| Aspect                      | Naïve Baseline           | Baseline Prophet                  | Log Prophet + Regressors (Final)         |
-|-----------------------------|--------------------------|------------------------------------|------------------------------------------|
-| Inputs                      | NVDA price only          | NVDA price only                   | NVDA price + SPY + Volume + VIX          |
-| Transform                   | none                     | none                               | log-transform on target + regressors     |
-| Complexity                  | very low                 | moderate                           | higher but still manageable              |
-| Interpretability            | trivial                  | good (trend/seasonality plots)    | good (trend + regressor effects)         |
-| Short-horizon performance   | surprisingly strong      | mixed                              | better tracking of movements             |
-| Long-horizon performance    | poor                     | captures trend but misses shocks   | better medium-term structure             |
-| Robustness to volatility    | none                     | limited                            | improved via log-transform + regressors  |
+v2 restructures everything around **Prophet** and careful **preprocessing**.
+
+### 3.1 Baseline Prophet (Price Only)
+
+First, we reproduce a baseline Prophet, now with a cleaner pipeline and a long history:
+
+- Data: NVDA from 1999 onward.
+- Split: earlier data for training, later for testing.
+- Model: Prophet with default trend and seasonality on **raw price**.
+
+**Result (v2 baseline):**
+
+- **Baseline Prophet R² ≈ −1.22**
+
+So baseline Prophet still performs worse than simply predicting the mean or naïve, confirming the difficulty of the problem.
+
+### 3.2 Log-Transformed Prophet (Flexible Trend)
+
+Next, we:
+
+- Transform target: \(y = \log(\text{price})\).
+- Use `changepoint_prior_scale` to allow a more flexible trend.
+
+**Result (v2 log + flexible trend):**
+
+- **R² ≈ −0.49**
+
+This is a clear improvement over −1.22, but still negative, meaning the model is not yet competitive with simple baselines when evaluated as a single global fit.
+
+### 3.3 Log + Seasonality
+
+We then add **explicit weekly and yearly seasonality** on top of the log transform and flexible trend.
+
+**Result (v2 enhanced Prophet):**
+
+- **R² ≈ −0.49** (very close to the previous value)
+
+So adding seasonality does **not** meaningfully improve performance on NVDA price, which is not strongly seasonal at the daily scale in the way business or demand series are.
+
+### 3.4 Rolling Prophet (1-Day-Ahead, No Regressors)
+
+To get a more realistic evaluation, we switch to a **rolling forecast**:
+
+- Choose a split date (e.g., 2018–2023).
+- Start with a training window up to the split.
+- For each day in the test period:
+  1. Fit Prophet on all data up to day \(t\).
+  2. Forecast day \(t+1\).
+  3. Append the true observation for day \(t+1\) to the training window.
+  4. Repeat.
+
+Using the **log-transformed price**, the rolling Prophet (no regressors) in v1 achieved:
+
+- **Rolling Forecast R² ≈ 0.74**
+
+This is a major improvement over the negative R² of global fits and shows that Prophet can be effective when used in an **online, refit-each-step** manner.
+
+### 3.5 Rolling Prophet with Regressors (SPY, Volume, VIX)
+
+In v2 we further extend the rolling setup to include regressors:
+
+- `add_regressor("SPY")`
+- `add_regressor("Volume")`
+- `add_regressor("VIX")`
+
+All are log-transformed and aligned with NVDA.
+
+In v1, a “Rolling Forecast with Regressors” (SPY + Volume) produced:
+
+- **Rolling Forecast with Regressors R² ≈ 0.55**
+
+In v2 we also add VIX for a three-regressor setup (SPY + Volume + VIX). The code computes R² for each model, but the last run’s numbers aren’t stored in the notebook outputs. Conceptually:
+
+- SPY and VIX provide **macro-market context**,
+- Volume encodes **liquidity / attention**,
+- The rolling refit ensures that the model uses only past information at each step.
+
+Even though the specific R² for SPY + Volume + VIX isn’t captured in the saved outputs, the design is consistent with financial forecasting practice (multi-factor models).
+
+### 3.6 Naïve Baseline in v2
+
+v2 also implements a **naïve baseline on the same test window** as the Prophet models:
+
+- First test-day prediction = last training-day value,
+- After that, predict the previous day’s observed price for each test day.
+
+This provides a fair, same-period comparison between:
+
+- Naïve,
+- Global Prophet variants,
+- Rolling Prophet variants.
 
 ---
 
-## 5. What Worked, What Didn’t, and Why
+## 4. Comparison of v1 vs v2: What Changed and Why
 
-### What Worked Well
+### 4.1 Modeling Scope
 
-- **Log transform** helped stabilize variance and improved fit.
-- **Exogenous regressors (SPY, VIX, Volume)** captured some variation that pure NVDA history could not explain.
-- **Rolling evaluation** gave a more realistic sense of performance and avoided overly optimistic metrics.
+- **v1**:
+  - Broad exploration.
+  - Models: naïve, Prophet (with holidays and AI event windows), LSTM.
+  - Focus: show strong LSTM performance vs Prophet and naïve.
 
-### What Didn’t Work as Well
+- **v2**:
+  - Focused, Prophet-centric pipeline.
+  - Models: multiple Prophet variants + naïve.
+  - Focus: better **preprocessing**, **feature engineering**, and **evaluation protocol** (rolling).
 
-- A single global Prophet fit on raw prices over the entire history performed poorly on the test set.
-- Prophet still struggled with **sudden jumps** (earnings surprises, news shocks) that are not encoded in regressors.
+### 4.2 Key Quantitative Takeaways
 
-### Why We Chose This Approach
+- Naïve baseline is **very strong** (R² ≈ 0.95 for 1-day ahead in v1).
+- Prophet, if used as a single global fit on raw price, is **poor** (R² ≈ −1 to −76 depending on setup).
+- LSTM in v1 achieves **R² ≈ 0.996**, but with caveats about generalization.
+- Rolling Prophet in v1/v2 shows that **evaluation protocol matters**:
+  - Rolling no-regressor Prophet: R² ≈ 0.74
+  - Rolling with regressors: R² ≈ 0.55 on one configuration.
 
-- Prophet directly supports **additive decomposition and extra regressors**, matching both the literature and the nature of our data.
-- The model is **interpretable** and can be easily tuned by adjusting changepoint priors, seasonalities, and regressors.
-- For an EE344 project, it offers a strong balance between:
-  - theoretical grounding (backed by published literature),
-  - practical implementation,
-  - and explainable results.
+### 4.3 Why We Changed the Code in v2
+
+We made v2 to:
+
+1. **Clean up the pipeline**:
+   - Shared helper functions (`build_prophet_df`, etc.).
+   - Centralized data loading and preprocessing.
+   - Consistent train/test splits.
+
+2. **Emphasize interpretability**:
+   - Prophet fits with trend / seasonality / regressor plots.
+   - Easier to explain in an EE344 report than a deep LSTM black box.
+
+3. **Improve evaluation realism**:
+   - Rolling forecasts instead of a single static split.
+   - Avoid overly optimistic metrics.
+
+4. **Highlight preprocessing decisions**:
+   - Log transforms,
+   - Extra regressors (SPY, Volume, VIX),
+   - Forward-filling and date alignment.
+
+v1 shows “how far” a deep model can push accuracy on one split; v2 shows a more **robust, interpretable ML pipeline** that aligns with course goals and can be maintained or extended by others.
 
 ---
 
-## 6. Limitations and Future Work
+## 5. Lessons Learned
 
-- **Additional features:** News sentiment, options data, sector indices, or macroeconomic variables could further improve forecasts.
-- **Alternative models:** 
-  - NeuralProphet (hybrid neural/additive model),
-  - LSTMs or Transformers for more complex, nonlinear dynamics.
-- **Risk-aware metrics:** Exploring risk-focused measures (e.g., downside error, quantile loss) could give a more nuanced picture than MSE-based metrics alone.
-
-Despite these limitations, our final Prophet configuration demonstrates how preprocessing (log transforms and feature engineering) and method choice (additive model with regressors, rolling evaluation) can significantly improve performance over both a naïve baseline and an untuned baseline Prophet on NVDA stock data.
+1. **Baselines first**: For financial data, naïve forecasts set a very high bar.
+2. **Prophet needs help**: On raw NVDA prices, Prophet alone performs poorly; log transforms, exogenous regressors, and rolling refits substantially improve things.
+3. **Deep models can overfit**: LSTMs can produce impressive R² but must be evaluated with caution.
+4. **Evaluation protocol is part of the method**: Switching from a single train/test split to rolling evaluation changed our understanding of Prophet’s performance.
+5. **Preprocessing is a model choice**: Log scaling, merging regressors, and how we handle missing days have a direct impact on model behavior and fairness of comparisons.
