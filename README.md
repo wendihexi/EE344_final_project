@@ -57,7 +57,6 @@ Both notebooks assume Python 3.10+ and use the following main packages:
 - `prophet`
 - `scikit-learn`
 - `tqdm` (for progress bars, mainly in v2)
-- `seaborn` (used in earlier exploratory plots)
 - `tensorflow` (for the LSTM in v1)
 
 ### Example `requirements.txt` (pip)
@@ -66,7 +65,6 @@ Both notebooks assume Python 3.10+ and use the following main packages:
 numpy
 pandas
 matplotlib
-seaborn
 yfinance
 prophet
 scikit-learn
