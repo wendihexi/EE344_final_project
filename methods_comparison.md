@@ -2,10 +2,10 @@
 
 We have two main versions of our project code:
 
-- **Version 1 (v1)**: `EE_344_Final_project-4.ipynb`  
+- **Version 1 (v1)**: `Prophet_testing.ipynb`  
   – Original final-project notebook combining naïve baseline, Prophet, and LSTM.
 
-- **Version 2 (v2)**: `Improved_ver_of_A's_EE344_Final_temp1.ipynb`  
+- **Version 2 (v2)**: `Prophet_testing_v2.ipynb`  
   – Improved, Prophet-centric notebook with cleaner preprocessing and rolling evaluation.
 
 This document describes the **shared pipeline**, what we did in **each version**, key **results**, and **why** we made these choices.
