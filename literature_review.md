@@ -26,7 +26,7 @@ Classical methods such as ARIMA, exponential smoothing, and state-space models f
    - The naïve / random-walk predictor is
 
 $$
-hat{y}_{t+1} = y_t.
+{y}_{t+1} = y_t.
 $$
    - and simple mean forecasts.  
 2. Explicitly consider **trend**, **seasonality**, and **residuals** rather than treating the series as a black box.  
