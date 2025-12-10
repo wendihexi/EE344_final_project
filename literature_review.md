@@ -24,7 +24,9 @@ Classical methods such as ARIMA, exponential smoothing, and state-space models f
 
 1. Always compare new models against **simple baselines**, especially:
    - the **naïve / random-walk** predictor
-   - $$ \hat{y}_{t+1} = y_t.$$,  
+     $$
+      \hat{y}_{t+1} = y_t.
+     $$
    - and simple mean forecasts.  
 2. Explicitly consider **trend**, **seasonality**, and **residuals** rather than treating the series as a black box.  
 3. Evaluate on **future hold-out data** (not shuffled) using metrics like MAE, RMSE, and \(R^2\).
