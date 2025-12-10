@@ -43,9 +43,10 @@ In **Version 1 (v1)**, we followed this advice by building a naïve persistence 
 
 It is designed as a practical tool for “forecasting at scale,” where analysts can tune trend, seasonality, and holiday components without deep time-series expertise. The model structure is:
 
-\[
-y(t) = g(t) + s(t) + h(t) + \sum_j \beta_j x_j(t) + \varepsilon_t,
-\]
+$$
+y(t) = g(t) + s(t) + h(t) + \sum_j \beta_j x_j(t) + \varepsilon_t
+$$
+
 
 where \(g(t)\) is the trend, \(s(t)\) seasonal effects, \(h(t)\) holiday or event effects, and \(x_j(t)\) are user-defined regressors.
 
